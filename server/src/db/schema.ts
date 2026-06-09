@@ -6,6 +6,7 @@ import {
   date,
   timestamp,
   uuid,
+  index,
 } from 'drizzle-orm/pg-core';
 
 export const plaidItems = pgTable('plaid_items', {
@@ -36,21 +37,29 @@ export const accounts = pgTable('accounts', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-export const transactions = pgTable('transactions', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  plaidTransactionId: text('plaid_transaction_id').notNull().unique(),
-  accountId: uuid('account_id').references(() => accounts.id),
-  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
-  date: date('date').notNull(),
-  name: text('name').notNull(),
-  merchantName: text('merchant_name'),
-  category: text('category'),
-  plaidCategory: text('plaid_category'),
-  isPending: boolean('is_pending').default(false),
-  notes: text('notes'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+export const transactions = pgTable(
+  'transactions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    plaidTransactionId: text('plaid_transaction_id').notNull().unique(),
+    accountId: uuid('account_id').references(() => accounts.id),
+    amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+    date: date('date').notNull(),
+    name: text('name').notNull(),
+    merchantName: text('merchant_name'),
+    category: text('category'),
+    plaidCategory: text('plaid_category'),
+    isPending: boolean('is_pending').default(false),
+    notes: text('notes'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('transactions_date_idx').on(table.date),
+    index('transactions_account_id_idx').on(table.accountId),
+    index('transactions_category_idx').on(table.category),
+  ]
+);
 
 export const budgetCategories = pgTable('budget_categories', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -21,6 +21,8 @@ services:
         sync: false
       - key: PLAID_ENV
         value: sandbox
+      - key: PLAID_WEBHOOK_URL
+        sync: false
       - key: ENCRYPTION_KEY
         sync: false
       - key: CLIENT_URL

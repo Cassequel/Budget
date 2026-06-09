@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { plaidClient } from '../plaid/client';
 import { syncAllItems, exchangeAndStore } from '../plaid/sync';
+import { verifyPlaidWebhook } from '../plaid/webhookVerify';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { CountryCode, Products } from 'plaid';
 
@@ -14,6 +15,8 @@ router.post('/link-token', requireAuth, async (_req: AuthRequest, res: Response)
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
+      // Register the webhook so Plaid pushes new transactions to us (live updates)
+      ...(process.env.PLAID_WEBHOOK_URL ? { webhook: process.env.PLAID_WEBHOOK_URL } : {}),
     });
     res.json({ link_token: response.data.link_token });
   } catch (err) {
@@ -28,6 +31,10 @@ router.post('/exchange', requireAuth, async (req: AuthRequest, res: Response) =>
       public_token: string;
       institution?: { institution_id?: string; name?: string };
     };
+    if (!public_token || typeof public_token !== 'string') {
+      res.status(400).json({ error: 'public_token is required' });
+      return;
+    }
     const item = await exchangeAndStore(public_token, institution?.institution_id, institution?.name);
     res.json({ itemId: item.id });
   } catch (err) {
@@ -47,6 +54,16 @@ router.post('/sync', requireAuth, async (_req: AuthRequest, res: Response) => {
 });
 
 router.post('/webhook', async (req: Request, res: Response) => {
+  // Verify the request actually came from Plaid before doing anything
+  const rawBody = (req as Request & { rawBody?: string }).rawBody;
+  const verified = await verifyPlaidWebhook(req.headers['plaid-verification'] as string | undefined, rawBody).catch(
+    () => false
+  );
+  if (!verified) {
+    res.status(401).json({ error: 'Webhook verification failed' });
+    return;
+  }
+
   const { webhook_type, webhook_code } = req.body as { webhook_type: string; webhook_code: string };
   if (webhook_type === 'TRANSACTIONS' && webhook_code === 'SYNC_UPDATES_AVAILABLE') {
     syncAllItems().catch(console.error);
