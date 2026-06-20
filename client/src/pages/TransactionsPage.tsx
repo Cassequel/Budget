@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '../lib/api';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { Search } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 
 interface Transaction {
   id: string;
@@ -22,6 +22,7 @@ export default function TransactionsPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(() => {
     Promise.all([
@@ -34,6 +35,13 @@ export default function TransactionsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  async function sync() {
+    setSyncing(true);
+    await api.post('/api/plaid/sync').catch(console.error);
+    load();
+    setSyncing(false);
+  }
 
   async function updateCategory(id: string, category: string) {
     setTxns((prev) => prev.map((t) => t.id === id ? { ...t, category } : t));
@@ -48,14 +56,20 @@ export default function TransactionsPage() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-slate-900">Transactions</h1>
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search…"
-            className="pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
-          />
+        <div className="flex items-center gap-2">
+          <button onClick={sync} disabled={syncing} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors">
+            <RefreshCw size={14} className={syncing ? 'animate-spin' : ''} />
+            Sync
+          </button>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search…"
+              className="pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
+            />
+          </div>
         </div>
       </div>
 

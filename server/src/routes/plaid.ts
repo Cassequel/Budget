@@ -36,6 +36,8 @@ router.post('/exchange', requireAuth, async (req: AuthRequest, res: Response) =>
       return;
     }
     const item = await exchangeAndStore(public_token, institution?.institution_id, institution?.name);
+    // Kick off a background sync so transactions appear immediately after linking
+    syncAllItems().catch((err) => console.error('Post-exchange sync failed:', err));
     res.json({ itemId: item.id });
   } catch (err) {
     console.error(err);
