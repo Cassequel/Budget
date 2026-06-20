@@ -3,9 +3,21 @@ import { db } from '../db';
 import { transactions } from '../db/schema';
 import { eq, desc, gte, lte, and, SQL } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { categorizeUncategorized } from '../categorize';
 
 const router = Router();
 router.use(requireAuth);
+
+// Manually trigger auto-categorization of any uncategorized transactions.
+router.post('/categorize', async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await categorizeUncategorized();
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Categorization failed' });
+  }
+});
 
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {

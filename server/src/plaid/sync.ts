@@ -3,11 +3,13 @@ import { db } from '../db';
 import { plaidItems, accounts, transactions } from '../db/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { decrypt, encrypt } from '../lib/crypto';
+import { categorizeUncategorized } from '../categorize';
 
 // Prevent overlapping syncs (e.g. webhook firing while a manual sync runs)
-let inFlight: Promise<{ synced: number; errors: number }> | null = null;
+type SyncResult = { synced: number; errors: number; categorized: number };
+let inFlight: Promise<SyncResult> | null = null;
 
-export function syncAllItems(): Promise<{ synced: number; errors: number }> {
+export function syncAllItems(): Promise<SyncResult> {
   if (inFlight) return inFlight;
   inFlight = doSyncAllItems().finally(() => {
     inFlight = null;
@@ -15,24 +17,14 @@ export function syncAllItems(): Promise<{ synced: number; errors: number }> {
   return inFlight;
 }
 
-async function doSyncAllItems(): Promise<{ synced: number; errors: number }> {
+async function doSyncAllItems(): Promise<SyncResult> {
   const items = await db.select().from(plaidItems);
 
   // One account lookup for the whole sync instead of one query per transaction
   const acctRows = await db
-    .select({
-      id: accounts.id,
-      plaidAccountId: accounts.plaidAccountId,
-      institutionName: accounts.institutionName,
-      name: accounts.name,
-    })
+    .select({ id: accounts.id, plaidAccountId: accounts.plaidAccountId })
     .from(accounts);
-  const acctMap = new Map(
-    acctRows.map((a) => [
-      a.plaidAccountId,
-      { id: a.id, category: [a.institutionName, a.name].filter(Boolean).join(' - ') || null },
-    ])
-  );
+  const acctMap = new Map(acctRows.map((a) => [a.plaidAccountId, a.id]));
 
   let synced = 0;
   let errors = 0;
@@ -47,7 +39,16 @@ async function doSyncAllItems(): Promise<{ synced: number; errors: number }> {
     }
   }
 
-  return { synced, errors };
+  // Auto-categorize anything new this sync pulled in. A failure here must not
+  // fail the sync itself — categories can always be backfilled on a later run.
+  let categorized = 0;
+  try {
+    ({ categorized } = await categorizeUncategorized());
+  } catch (err) {
+    console.error('Auto-categorization failed:', err);
+  }
+
+  return { synced, errors, categorized };
 }
 
 const CHUNK = 200;
@@ -56,7 +57,7 @@ async function syncItem(
   itemId: string,
   accessToken: string,
   cursor: string | null,
-  acctMap: Map<string, { id: string | null; category: string | null }>
+  acctMap: Map<string, string | null>
 ) {
   let currentCursor = cursor ?? undefined;
   let hasMore = true;
@@ -71,20 +72,19 @@ async function syncItem(
 
     // Batch-insert added transactions instead of one INSERT per row
     if (added.length) {
-      const rows = added.map((tx) => {
-        const acct = acctMap.get(tx.account_id) ?? { id: null, category: null };
-        return {
-          plaidTransactionId: tx.transaction_id,
-          accountId: acct.id,
-          amount: tx.amount.toString(),
-          date: tx.date,
-          name: tx.name,
-          merchantName: tx.merchant_name ?? null,
-          category: acct.category,
-          plaidCategory: tx.personal_finance_category?.primary ?? null,
-          isPending: tx.pending,
-        };
-      });
+      const rows = added.map((tx) => ({
+        plaidTransactionId: tx.transaction_id,
+        accountId: acctMap.get(tx.account_id) ?? null,
+        amount: tx.amount.toString(),
+        date: tx.date,
+        name: tx.name,
+        merchantName: tx.merchant_name ?? null,
+        // Leave category NULL so the auto-categorizer (and only it) fills it in.
+        category: null,
+        plaidCategory: tx.personal_finance_category?.primary ?? null,
+        plaidCategoryDetailed: tx.personal_finance_category?.detailed ?? null,
+        isPending: tx.pending,
+      }));
       for (let i = 0; i < rows.length; i += CHUNK) {
         await db.insert(transactions).values(rows.slice(i, i + CHUNK)).onConflictDoNothing();
       }

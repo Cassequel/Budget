@@ -49,6 +49,7 @@ export const transactions = pgTable(
     merchantName: text('merchant_name'),
     category: text('category'),
     plaidCategory: text('plaid_category'),
+    plaidCategoryDetailed: text('plaid_category_detailed'),
     isPending: boolean('is_pending').default(false),
     notes: text('notes'),
     createdAt: timestamp('created_at').defaultNow().notNull(),

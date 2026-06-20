@@ -16,6 +16,7 @@ import plansRouter from './routes/plans';
 import savingsRouter from './routes/savings';
 import plaidRouter from './routes/plaid';
 import dashboardRouter from './routes/dashboard';
+import { seedDefaultCategories } from './db/seedCategories';
 
 // ── Startup sanity checks ───────────────────────────────────
 for (const key of ['DATABASE_URL', 'JWT_SECRET', 'ADMIN_PASSWORD', 'ENCRYPTION_KEY']) {
@@ -99,6 +100,11 @@ if (fs.existsSync(clientDist)) {
 } else {
   console.warn(`Client build not found at ${clientDist} — run "npm run build --workspace=client".`);
 }
+
+// Ensure the canonical budget categories exist (idempotent; won't clobber edits).
+seedDefaultCategories()
+  .then((n) => n && console.log(`Seeded ${n} default categories.`))
+  .catch((err) => console.error('Category seed failed:', err));
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
