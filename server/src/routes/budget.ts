@@ -34,8 +34,12 @@ router.delete('/categories/:id', async (req: AuthRequest, res: Response) => {
 
 router.get('/summary', async (req: AuthRequest, res: Response) => {
   const now = new Date();
-  const from = (req.query.from as string) ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const to = (req.query.to as string) ?? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const from = (req.query.from as string) ?? `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+  // Last day of the current month — `new Date(y, m+1, 0)` rolls back to it, so we
+  // never emit an invalid literal like "2026-06-31".
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const to = (req.query.to as string) ?? `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(lastDay)}`;
 
   const cats = await db.select().from(budgetCategories);
   const spending = await db

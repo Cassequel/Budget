@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, CreditCard, ArrowLeftRight, PieChart, BookOpen, Target, LogOut } from 'lucide-react';
+import { LayoutDashboard, CreditCard, ArrowLeftRight, BarChart3, PieChart, BookOpen, Target, LogOut } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { to: '/accounts', label: 'Accounts', icon: CreditCard },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
+  { to: '/breakdown', label: 'Breakdown', icon: BarChart3 },
   { to: '/budget', label: 'Budget', icon: PieChart },
   { to: '/plans', label: 'Plans', icon: BookOpen },
   { to: '/savings', label: 'Savings', icon: Target },

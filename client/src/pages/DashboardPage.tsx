@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts';
 import api from '../lib/api';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, lastNMonths, formatMonthShort } from '../lib/utils';
 import { TrendingUp, TrendingDown, Clock, Wallet } from 'lucide-react';
 
 interface DashboardData {
@@ -10,6 +13,75 @@ interface DashboardData {
   runwayMonths: number | null;
   plans: Array<{ id: string; name: string; type: string; totalAmount: number; paidAmount: number }>;
   accountCount: number;
+}
+
+interface TrendRow { month: string; category: string; total: number; }
+
+const MONTHS = 12;
+
+function SpendingTrend() {
+  const [rows, setRows] = useState<TrendRow[]>([]);
+  const [category, setCategory] = useState('All');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get<TrendRow[]>(`/api/dashboard/spending-trend?months=${MONTHS}`)
+      .then((r) => setRows(r.data))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const categories = useMemo(
+    () => [...new Set(rows.map((r) => r.category))].sort(),
+    [rows]
+  );
+
+  const data = useMemo(() => {
+    const keys = lastNMonths(MONTHS);
+    const byMonth = new Map<string, number>();
+    for (const r of rows) {
+      if (category !== 'All' && r.category !== category) continue;
+      byMonth.set(r.month, (byMonth.get(r.month) ?? 0) + r.total);
+    }
+    return keys.map((k) => ({ label: formatMonthShort(k), spend: byMonth.get(k) ?? 0 }));
+  }, [rows, category]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold text-slate-900">Monthly Spending</h2>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="text-sm border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="All">All categories</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      </div>
+      {loading ? (
+        <p className="text-slate-400 text-sm">Loading…</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis
+              tick={{ fontSize: 12, fill: '#94a3b8' }}
+              axisLine={false}
+              tickLine={false}
+              width={64}
+              tickFormatter={(v) => `$${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v}`}
+            />
+            <Tooltip
+              formatter={(v: number) => [formatCurrency(v), 'Spent']}
+              contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
+            />
+            <Line type="monotone" dataKey="spend" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
 }
 
 function StatCard({ label, value, sub, icon: Icon, color }: { label: string; value: string; sub?: string; icon: typeof Wallet; color: string }) {
@@ -74,6 +146,8 @@ export default function DashboardPage() {
           color="bg-purple-50 text-purple-600"
         />
       </div>
+
+      <SpendingTrend />
 
       {data.plans.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-5">

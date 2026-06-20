@@ -1,17 +1,24 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
 import { accounts, transactions, plans, planItems, savingsGoals } from '../db/schema';
-import { gte, lte, and, sql } from 'drizzle-orm';
+import { gte, lte, lt, gt, and, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 router.use(requireAuth);
 
+// Format a Date as YYYY-MM-DD (local fields, no timezone shift).
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 router.get('/', async (_req: AuthRequest, res: Response) => {
   try {
     const now = new Date();
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const monthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+    // Use a half-open range [monthStart, nextMonthStart) so we never build an
+    // invalid literal like "2026-06-31" (which Postgres rejects with 22008).
+    const monthStart = ymd(new Date(now.getFullYear(), now.getMonth(), 1));
+    const nextMonthStart = ymd(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
     const [accts, planList, goals] = await Promise.all([
       db.select().from(accounts),
@@ -30,7 +37,7 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
         spend: sql<string>`sum(case when amount > 0 then amount else 0 end)`,
       })
       .from(transactions)
-      .where(and(gte(transactions.date, monthStart), lte(transactions.date, monthEnd)));
+      .where(and(gte(transactions.date, monthStart), lt(transactions.date, nextMonthStart)));
 
     const monthlyIncome = parseFloat(monthlyResult[0]?.income ?? '0');
     const monthlySpend = parseFloat(monthlyResult[0]?.spend ?? '0');
@@ -74,6 +81,40 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Dashboard fetch failed' });
+  }
+});
+
+// Monthly spending grouped by category, for the dashboard trend line and the
+// breakdown page. Only counts money out (amount > 0). Returns one row per
+// (month, category); the client pivots it for both the line and bar charts.
+router.get('/spending-trend', async (req: AuthRequest, res: Response) => {
+  try {
+    const months = Math.min(Math.max(parseInt((req.query.months as string) ?? '12', 10) || 12, 1), 36);
+    const now = new Date();
+    // First day of the earliest month in the window.
+    const from = ymd(new Date(now.getFullYear(), now.getMonth() - (months - 1), 1));
+
+    const monthExpr = sql<string>`to_char(${transactions.date}, 'YYYY-MM')`;
+    const rows = await db
+      .select({
+        month: monthExpr,
+        category: transactions.category,
+        total: sql<string>`sum(${transactions.amount})`,
+      })
+      .from(transactions)
+      .where(and(gte(transactions.date, from), gt(transactions.amount, '0')))
+      .groupBy(monthExpr, transactions.category);
+
+    res.json(
+      rows.map((r) => ({
+        month: r.month,
+        category: r.category ?? 'Uncategorized',
+        total: parseFloat(r.total ?? '0'),
+      }))
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load spending trend' });
   }
 });
 

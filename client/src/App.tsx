@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/AccountsPage';
 import TransactionsPage from './pages/TransactionsPage';
+import BreakdownPage from './pages/BreakdownPage';
 import BudgetPage from './pages/BudgetPage';
 import PlansPage from './pages/PlansPage';
 import SavingsPage from './pages/SavingsPage';
@@ -41,6 +42,7 @@ function App() {
           <Route index element={<DashboardPage />} />
           <Route path="accounts" element={<AccountsPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
+          <Route path="breakdown" element={<BreakdownPage />} />
           <Route path="budget" element={<BudgetPage />} />
           <Route path="plans" element={<PlansPage />} />
           <Route path="savings" element={<SavingsPage />} />
