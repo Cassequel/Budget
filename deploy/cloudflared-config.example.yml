@@ -1,0 +1,21 @@
+# Only needed if your existing CT 101 tunnel is CONFIG-FILE managed (Option B in
+# HOMELAB-DEPLOY.md). If it's TUNNEL_TOKEN/dashboard-managed (Option A), ignore this
+# file and add the hostname in the Cloudflare Zero Trust dashboard instead.
+#
+# Do NOT create a new tunnel. Add the budget hostname to the EXISTING tunnel's
+# config.yml — insert this ingress rule ABOVE the final catch-all (http_status:404)
+# rule that's already there:
+
+ingress:
+  # ... your existing watch.aidenswanson.com rule stays here ...
+
+  # >>> ADD THIS: budget app on the new LXC
+  - hostname: budget.aidenswanson.com
+    service: http://192.168.86.102:3001
+
+  # ... existing catch-all must remain LAST ...
+  - service: http_status:404
+
+# After editing, create the DNS route and restart cloudflared (on CT 101):
+#   cloudflared tunnel route dns <existing-tunnel-name> budget.aidenswanson.com
+#   cd /opt/media-pipeline && docker compose restart cloudflared

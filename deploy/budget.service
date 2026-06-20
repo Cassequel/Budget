@@ -1,0 +1,21 @@
+[Unit]
+Description=Budget app (Express API + static client)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+# The user/dir the app runs as. Adjust if you cloned elsewhere or use another user.
+User=budget
+WorkingDirectory=/opt/budget
+ExecStart=/usr/bin/node server/dist/index.js
+Restart=on-failure
+RestartSec=5
+# dotenv loads /opt/budget/.env at startup; no EnvironmentFile needed.
+# Harden a little:
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

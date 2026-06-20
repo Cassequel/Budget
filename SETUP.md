@@ -1,11 +1,13 @@
-# Budget App — Setup & Deployment Guide
+# Budget App — Local Setup Guide
+
+> **Deploying to the homelab?** This file covers running locally for development.
+> For the Proxmox LXC + self-hosted Postgres + Cloudflare Tunnel production deploy,
+> see **[HOMELAB-DEPLOY.md](HOMELAB-DEPLOY.md)**.
 
 ## Prerequisites
 - Node.js 18+
-- A [Neon](https://neon.tech) account (free PostgreSQL)
+- PostgreSQL (local install, Docker, or a hosted DB)
 - A [Plaid](https://dashboard.plaid.com/signup) developer account (free)
-- A [Render](https://render.com) account (free backend hosting)
-- A [Vercel](https://vercel.com) account (free frontend hosting)
 
 ---
 
@@ -23,11 +25,12 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ---
 
-## 2. Create the database (Neon)
+## 2. Create the database
 
-1. Sign up at https://neon.tech → create a new project
-2. Copy the **Connection string** (starts with `postgresql://...`)
-3. Save it as `DATABASE_URL`
+Use any PostgreSQL instance. For local dev, create a database and set
+`DATABASE_URL=postgresql://user:password@localhost:5432/budget` (with
+`DATABASE_SSL=false` for a local DB). For the homelab, the
+[setup script](deploy/setup-postgres.sh) creates the role + database for you.
 
 ---
 
@@ -92,36 +95,6 @@ Click **Connect Account** on the Accounts page to link a bank (or Venmo) via Pla
 
 ## 7. Deploy to production
 
-### Backend → Render
-
-1. Push the repo to GitHub
-2. Create a new **Web Service** on Render → connect your GitHub repo
-3. Set **Root Directory** to `server`
-4. Set **Build Command**: `npm install && npm run build`
-5. Set **Start Command**: `node dist/index.js`
-6. Add all env vars from your `.env` (except `VITE_API_URL` and `CLIENT_URL`)
-7. Set `CLIENT_URL` to your Vercel frontend URL (fill in after deploying frontend)
-8. Set `PLAID_ENV` to `development` when ready for real accounts
-
-### Frontend → Vercel
-
-1. Import the repo on Vercel → set **Root Directory** to `client`
-2. Add env var: `VITE_API_URL=https://your-render-service.onrender.com`
-3. Deploy
-
-### Plaid webhooks
-
-After deploying the backend, go to Plaid dashboard → Developers → Webhooks and set:
-```
-https://your-render-service.onrender.com/api/plaid/webhook
-```
-
----
-
-## 8. Switch to real accounts
-
-1. In Plaid dashboard, request **Development** access (free, instant approval)
-2. Update `PLAID_SECRET` to your **Development** secret
-3. Set `PLAID_ENV=development`
-4. Redeploy the backend
-5. Use **Connect Account** in the app to link real bank accounts and Venmo
+The production deploy (Proxmox LXC, self-hosted Postgres, Cloudflare Tunnel, Plaid
+production) is documented in **[HOMELAB-DEPLOY.md](HOMELAB-DEPLOY.md)**. In production
+the Express server also serves the built client, so there's no separate frontend host.

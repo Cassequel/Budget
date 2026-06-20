@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 import express from 'express';
 import cors from 'cors';
@@ -34,7 +35,23 @@ const app = express();
 // Render/Vercel sit behind a proxy; needed for correct per-IP rate limiting
 app.set('trust proxy', 1);
 
-app.use(helmet());
+// CSP tuned so Plaid Link (loaded from cdn.plaid.com) and the SPA both work.
+// Plaid renders its flow inside an iframe served from cdn.plaid.com; Radix/Tailwind
+// rely on inline styles. The API and app share an origin, so 'self' covers them.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'script-src': ["'self'", 'https://cdn.plaid.com'],
+        'frame-src': ["'self'", 'https://cdn.plaid.com'],
+        'connect-src': ["'self'", 'https://production.plaid.com', 'https://cdn.plaid.com'],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'img-src': ["'self'", 'data:', 'https://*.plaid.com'],
+      },
+    },
+  })
+);
 app.use(compression());
 app.use(cors({ origin: process.env.CLIENT_URL ?? 'http://localhost:5173', credentials: true }));
 
@@ -68,6 +85,20 @@ app.use('/api/plaid', plaidRouter);
 app.use('/api/dashboard', dashboardRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+
+// Any unmatched /api route → JSON 404 (so the SPA fallback below never swallows it)
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
+
+// ── Serve the built client (single-origin homelab deploy) ────
+// In production the Express server also serves client/dist, so the frontend and
+// API share an origin — no CORS, and a single hostname for Cloudflare Tunnel.
+const clientDist = path.resolve(__dirname, '../../client/dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+} else {
+  console.warn(`Client build not found at ${clientDist} — run "npm run build --workspace=client".`);
+}
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
