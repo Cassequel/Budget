@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import api from '../lib/api';
-import { formatCurrency, formatDate } from '../lib/utils';
+import { formatCurrency, formatDate, accountLabel } from '../lib/utils';
 import { Search, RefreshCw, Sparkles } from 'lucide-react';
 
 interface Transaction {
@@ -21,11 +21,25 @@ interface Category {
   color: string | null;
 }
 
+interface Account {
+  id: string;
+  name: string;
+  institutionName: string | null;
+}
+
 const UNCATEGORIZED = '__uncat__';
+
+// Subtle pill styles for the known account sources.
+const BADGE_STYLES: Record<string, string> = {
+  Venmo: 'bg-sky-50 text-sky-700 border-sky-200',
+  MACU: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  Amex: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+};
 
 export default function TransactionsPage() {
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<string>('all'); // 'all' | category name | UNCATEGORIZED
   const [loading, setLoading] = useState(true);
@@ -36,13 +50,23 @@ export default function TransactionsPage() {
     Promise.all([
       api.get<Transaction[]>('/api/transactions'),
       api.get<Category[]>('/api/budget/categories'),
+      api.get<Account[]>('/api/accounts'),
     ])
-      .then(([txRes, catRes]) => {
+      .then(([txRes, catRes, acctRes]) => {
         setTxns(txRes.data);
         setCategories(catRes.data);
+        setAccounts(acctRes.data);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const labelOf = useCallback(
+    (accountId: string | null) => {
+      const a = accountId ? accounts.find((x) => x.id === accountId) : null;
+      return a ? accountLabel(a.institutionName, a.name) : null;
+    },
+    [accounts]
+  );
 
   useEffect(() => { load(); }, [load]);
 
@@ -209,6 +233,14 @@ export default function TransactionsPage() {
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap">{formatDate(t.date)}</td>
                     <td className="px-4 py-3">
                       <span className={t.isPending ? 'text-slate-400 italic' : 'text-slate-700'}>{t.merchantName ?? t.name}</span>
+                      {(() => {
+                        const label = labelOf(t.accountId);
+                        return label ? (
+                          <span className={`ml-2 px-1.5 py-0.5 text-[10px] font-medium rounded border ${BADGE_STYLES[label] ?? 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                            {label}
+                          </span>
+                        ) : null;
+                      })()}
                       {t.isPending && <span className="ml-2 text-xs text-slate-400">pending</span>}
                     </td>
                     <td className="px-4 py-3">

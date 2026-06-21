@@ -20,6 +20,16 @@ export function formatDate(dateStr: string): string {
   });
 }
 
+// Short source label for a transaction's account (Venmo / MACU / Amex), derived
+// from the Plaid institution + account name. Falls back to the institution name.
+export function accountLabel(institutionName?: string | null, accountName?: string | null): string | null {
+  const s = `${institutionName ?? ''} ${accountName ?? ''}`.toLowerCase();
+  if (s.includes('venmo')) return 'Venmo';
+  if (s.includes('mountain america') || s.includes('macu')) return 'MACU';
+  if (s.includes('american express') || s.includes('amex')) return 'Amex';
+  return institutionName ?? accountName ?? null;
+}
+
 // 'YYYY-MM' key for a Date (local).
 export function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
