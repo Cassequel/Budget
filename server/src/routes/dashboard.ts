@@ -1,8 +1,9 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
 import { accounts, transactions, plans, planItems, savingsGoals } from '../db/schema';
-import { gte, lte, lt, gt, and, sql } from 'drizzle-orm';
+import { gte, lt, gt, and, or, isNull, notInArray, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { NON_SPENDING_CATEGORIES } from '../db/seedCategories';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,6 +12,14 @@ router.use(requireAuth);
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+// Matches transactions that should count toward spend/income aggregates:
+// everything except the non-spending categories. NULL (uncategorized) still
+// counts, so we OR it in explicitly (SQL `NOT IN` would drop NULLs).
+const isSpending = or(
+  isNull(transactions.category),
+  notInArray(transactions.category, NON_SPENDING_CATEGORIES)
+);
 
 router.get('/', async (_req: AuthRequest, res: Response) => {
   try {
@@ -37,7 +46,7 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
         spend: sql<string>`sum(case when amount > 0 then amount else 0 end)`,
       })
       .from(transactions)
-      .where(and(gte(transactions.date, monthStart), lt(transactions.date, nextMonthStart)));
+      .where(and(gte(transactions.date, monthStart), lt(transactions.date, nextMonthStart), isSpending));
 
     const monthlyIncome = parseFloat(monthlyResult[0]?.income ?? '0');
     const monthlySpend = parseFloat(monthlyResult[0]?.spend ?? '0');
@@ -61,7 +70,7 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
     const spendResult = await db
       .select({ total: sql<string>`sum(amount)` })
       .from(transactions)
-      .where(and(gte(transactions.date, from3m), gte(transactions.amount, '0')));
+      .where(and(gte(transactions.date, from3m), gt(transactions.amount, '0'), isSpending));
 
     const avgMonthlySpend = parseFloat(spendResult[0]?.total ?? '0') / 3;
     const totalLiquid = accts
@@ -102,7 +111,7 @@ router.get('/spending-trend', async (req: AuthRequest, res: Response) => {
         total: sql<string>`sum(${transactions.amount})`,
       })
       .from(transactions)
-      .where(and(gte(transactions.date, from), gt(transactions.amount, '0')))
+      .where(and(gte(transactions.date, from), gt(transactions.amount, '0'), isSpending))
       .groupBy(monthExpr, transactions.category);
 
     res.json(

@@ -20,6 +20,9 @@ interface Category { id: string; name: string; color: string | null; }
 
 const CURRENT = monthKey(new Date());
 
+// Money-movement categories that shouldn't appear in spending breakdowns.
+const HIDDEN_CATEGORIES = new Set(['Loan Payments', 'Transfers']);
+
 export default function BreakdownPage() {
   const [month, setMonth] = useState(CURRENT);
   const [txns, setTxns] = useState<Transaction[]>([]);
@@ -43,10 +46,17 @@ export default function BreakdownPage() {
     [categories]
   );
 
+  // Drop money-movement categories (loan payments, transfers) entirely — they
+  // shouldn't show or count anywhere on this page.
+  const visible = useMemo(
+    () => txns.filter((t) => !HIDDEN_CATEGORIES.has(t.category ?? '')),
+    [txns]
+  );
+
   // Spend per category (money out only), sorted high → low, for the bar chart.
   const breakdown = useMemo(() => {
     const m = new Map<string, number>();
-    for (const t of txns) {
+    for (const t of visible) {
       const amt = parseFloat(t.amount);
       if (amt <= 0) continue;
       const cat = t.category ?? 'Uncategorized';
@@ -55,14 +65,14 @@ export default function BreakdownPage() {
     return [...m.entries()]
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total);
-  }, [txns]);
+  }, [visible]);
 
   const totalSpend = breakdown.reduce((s, b) => s + b.total, 0);
 
   // Transactions newest first, biggest charges visible.
   const sortedTxns = useMemo(
-    () => [...txns].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
-    [txns]
+    () => [...visible].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
+    [visible]
   );
 
   const atCurrent = month >= CURRENT;

@@ -30,6 +30,14 @@ export const DEFAULT_CATEGORIES: { name: string; color: string; type: 'expense' 
 ];
 
 /**
+ * Categories that represent money moving around rather than real income or
+ * spending (paying off a card, moving cash between accounts). They still exist
+ * and show on the Transactions page, but are excluded from every aggregate on
+ * the Dashboard and Breakdown so they don't distort spend/income/trend numbers.
+ */
+export const NON_SPENDING_CATEGORIES = ['Loan Payments', 'Transfers'];
+
+/**
  * Insert any default categories that don't already exist (matched by name).
  * Idempotent: safe to run on every boot and won't clobber user edits.
  */

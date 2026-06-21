@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import api from '../lib/api';
 import { formatCurrency } from '../lib/utils';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
 
 interface Category {
   id: string;
@@ -24,6 +24,8 @@ export default function BudgetPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ name: '', monthlyLimit: '', color: '#6366f1', type: 'expense' });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', monthlyLimit: '', color: '#6366f1' });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -47,6 +49,27 @@ export default function BudgetPage() {
 
   async function deleteCategory(id: string) {
     await api.delete(`/api/budget/categories/${id}`);
+    load();
+  }
+
+  function startEdit(cat: Category) {
+    setEditingId(cat.id);
+    setEditForm({
+      name: cat.name,
+      monthlyLimit: cat.monthlyLimit ?? '',
+      color: cat.color ?? '#6366f1',
+    });
+  }
+
+  async function saveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editingId) return;
+    await api.patch(`/api/budget/categories/${editingId}`, {
+      name: editForm.name,
+      monthlyLimit: editForm.monthlyLimit ? parseFloat(editForm.monthlyLimit) : undefined,
+      color: editForm.color,
+    });
+    setEditingId(null);
     load();
   }
 
@@ -102,6 +125,36 @@ export default function BudgetPage() {
             const limit = cat.limit ?? 0;
             const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
             const over = limit > 0 && spent > limit;
+
+            if (editingId === cat.id) {
+              return (
+                <form key={cat.id} onSubmit={saveEdit} className="bg-white rounded-xl border border-blue-200 ring-1 ring-blue-100 p-4">
+                  <div className="grid grid-cols-[1fr_8rem_3rem_auto] gap-3 items-end">
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Name</label>
+                      <input required value={editForm.name} onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Monthly Limit ($)</label>
+                      <input type="number" min="0" step="0.01" value={editForm.monthlyLimit} onChange={(e) => setEditForm((f) => ({ ...f, monthlyLimit: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="none" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Color</label>
+                      <input type="color" value={editForm.color} onChange={(e) => setEditForm((f) => ({ ...f, color: e.target.value }))} className="h-9 w-full rounded-lg border border-slate-200 cursor-pointer" />
+                    </div>
+                    <div className="flex items-center gap-1 pb-0.5">
+                      <button type="submit" className="p-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors" title="Save">
+                        <Check size={15} />
+                      </button>
+                      <button type="button" onClick={() => setEditingId(null)} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors" title="Cancel">
+                        <X size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              );
+            }
+
             return (
               <div key={cat.id} className="bg-white rounded-xl border border-slate-200 p-4">
                 <div className="flex items-center justify-between mb-2">
@@ -113,9 +166,14 @@ export default function BudgetPage() {
                     <span className="text-sm text-slate-500">
                       {formatCurrency(spent)}{limit > 0 ? ` / ${formatCurrency(limit)}` : ''}
                     </span>
-                    <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors">
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => startEdit(cat)} className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit">
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => deleteCategory(cat.id)} className="text-slate-300 hover:text-red-400 transition-colors" title="Delete">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {limit > 0 && (
