@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import api from '../lib/api';
 import { formatCurrency, formatDate, formatMonthLong, monthBounds, monthKey } from '../lib/utils';
 
@@ -28,6 +28,7 @@ export default function BreakdownPage() {
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null); // category filter from a bar click
 
   useEffect(() => {
     api.get<Category[]>('/api/budget/categories').then((r) => setCategories(r.data)).catch(() => {});
@@ -35,6 +36,7 @@ export default function BreakdownPage() {
 
   useEffect(() => {
     setLoading(true);
+    setSelected(null); // clear the category filter when the month changes
     const { from, to } = monthBounds(month);
     api.get<Transaction[]>(`/api/transactions?from=${from}&to=${to}`)
       .then((r) => setTxns(r.data))
@@ -73,6 +75,12 @@ export default function BreakdownPage() {
   const sortedTxns = useMemo(
     () => [...visible].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0)),
     [visible]
+  );
+
+  // When a bar is selected, the list shows only that category.
+  const displayedTxns = useMemo(
+    () => (selected ? sortedTxns.filter((t) => (t.category ?? 'Uncategorized') === selected) : sortedTxns),
+    [sortedTxns, selected]
   );
 
   const atCurrent = month >= CURRENT;
@@ -136,14 +144,41 @@ export default function BreakdownPage() {
                   cursor={{ fill: '#f8fafc' }}
                   contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 13 }}
                 />
-                <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={22}>
+                <Bar
+                  dataKey="total"
+                  radius={[0, 4, 4, 0]}
+                  barSize={22}
+                  cursor="pointer"
+                  onClick={(_d, index) => {
+                    const cat = breakdown[index]?.category;
+                    if (cat) setSelected((s) => (s === cat ? null : cat));
+                  }}
+                >
                   {breakdown.map((b) => (
-                    <Cell key={b.category} fill={colorOf(b.category)} />
+                    <Cell
+                      key={b.category}
+                      fill={colorOf(b.category)}
+                      fillOpacity={selected && b.category !== selected ? 0.3 : 1}
+                    />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
+
+          {selected && (
+            <div className="flex items-center gap-2 -mb-1">
+              <span className="text-sm text-slate-500">Filtered by</span>
+              <button
+                onClick={() => setSelected(null)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: colorOf(selected) }} />
+                {selected}
+                <X size={12} className="text-slate-400" />
+              </button>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
             <table className="w-full text-sm">
@@ -156,7 +191,10 @@ export default function BreakdownPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {sortedTxns.map((t) => {
+                {displayedTxns.length === 0 && (
+                  <tr><td colSpan={4} className="text-center py-8 text-slate-400">No transactions in this category.</td></tr>
+                )}
+                {displayedTxns.map((t) => {
                   const amt = parseFloat(t.amount);
                   const isIncome = amt < 0;
                   const cat = t.category ?? 'Uncategorized';
