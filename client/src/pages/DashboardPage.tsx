@@ -3,7 +3,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import api from '../lib/api';
-import { formatCurrency, lastNMonths, formatMonthShort } from '../lib/utils';
+import { formatCurrency, lastNMonths, formatMonthShort, formatRelativeTime } from '../lib/utils';
 import { TrendingUp, TrendingDown, Clock, Wallet } from 'lucide-react';
 
 interface DashboardData {
@@ -13,6 +13,7 @@ interface DashboardData {
   runwayMonths: number | null;
   plans: Array<{ id: string; name: string; type: string; totalAmount: number; paidAmount: number }>;
   accountCount: number;
+  balancesUpdatedAt: string | null;
 }
 
 interface TrendRow { month: string; category: string; total: number; }
@@ -116,7 +117,12 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
+        {data.balancesUpdatedAt && (
+          <p className="text-xs text-slate-400">Balances updated {formatRelativeTime(data.balancesUpdatedAt)}</p>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

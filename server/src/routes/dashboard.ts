@@ -1,25 +1,25 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
 import { accounts, transactions, plans, planItems, savingsGoals } from '../db/schema';
-import { gte, lt, gt, and, or, isNull, notInArray, sql } from 'drizzle-orm';
+import { gte, lt, gt, and, eq, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
-import { NON_SPENDING_CATEGORIES } from '../db/seedCategories';
 
 const router = Router();
 router.use(requireAuth);
+
+// Account types that represent money owed rather than money held.
+const LIABILITY_TYPES = new Set(['credit', 'loan']);
 
 // Format a Date as YYYY-MM-DD (local fields, no timezone shift).
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Matches transactions that should count toward spend/income aggregates:
-// everything except the non-spending categories. NULL (uncategorized) still
-// counts, so we OR it in explicitly (SQL `NOT IN` would drop NULLs).
-const isSpending = or(
-  isNull(transactions.category),
-  notInArray(transactions.category, NON_SPENDING_CATEGORIES)
-);
+// Transactions that count toward spend/income aggregates — derived from the
+// deterministic flow_type (see server/src/flowType.ts), not the display
+// category, so transfers and credit-card/debt payments never masquerade as
+// real spending or distort runway.
+const isSpending = eq(transactions.flowType, 'spending');
 
 router.get('/', async (_req: AuthRequest, res: Response) => {
   try {
@@ -37,16 +37,20 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
 
     const totalNetWorth = accts.reduce((sum, a) => {
       const bal = parseFloat(a.currentBalance ?? '0');
-      return sum + (a.type === 'credit' ? -bal : bal);
+      return sum + (LIABILITY_TYPES.has(a.type) ? -bal : bal);
     }, 0);
+
+    const balancesUpdatedAt = accts.length
+      ? new Date(Math.max(...accts.map((a) => a.updatedAt.getTime()))).toISOString()
+      : null;
 
     const monthlyResult = await db
       .select({
-        income: sql<string>`sum(case when amount < 0 then abs(amount) else 0 end)`,
-        spend: sql<string>`sum(case when amount > 0 then amount else 0 end)`,
+        income: sql<string>`sum(case when ${transactions.flowType} = 'income' then abs(amount) else 0 end)`,
+        spend: sql<string>`sum(case when ${transactions.flowType} = 'spending' then amount else 0 end)`,
       })
       .from(transactions)
-      .where(and(gte(transactions.date, monthStart), lt(transactions.date, nextMonthStart), isSpending));
+      .where(and(gte(transactions.date, monthStart), lt(transactions.date, nextMonthStart)));
 
     const monthlyIncome = parseFloat(monthlyResult[0]?.income ?? '0');
     const monthlySpend = parseFloat(monthlyResult[0]?.spend ?? '0');
@@ -86,6 +90,7 @@ router.get('/', async (_req: AuthRequest, res: Response) => {
       plans: planTotals,
       savingsGoals: goals,
       accountCount: accts.length,
+      balancesUpdatedAt,
     });
   } catch (err) {
     console.error(err);

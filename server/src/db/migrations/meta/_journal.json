@@ -15,6 +15,13 @@
       "when": 1781934667110,
       "tag": "0001_warm_skreet",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787699876566,
+      "tag": "0002_loud_justice",
+      "breakpoints": true
     }
   ]
 }
