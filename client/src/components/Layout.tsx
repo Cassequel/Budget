@@ -1,9 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, CreditCard, ArrowLeftRight, BarChart3, PieChart, BookOpen, Target, LogOut } from 'lucide-react';
+import { LayoutDashboard, SlidersHorizontal, CreditCard, ArrowLeftRight, BarChart3, PieChart, BookOpen, Target, LogOut } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { to: '/plan', label: 'Plan', icon: SlidersHorizontal },
   { to: '/accounts', label: 'Accounts', icon: CreditCard },
   { to: '/transactions', label: 'Transactions', icon: ArrowLeftRight },
   { to: '/breakdown', label: 'Breakdown', icon: BarChart3 },

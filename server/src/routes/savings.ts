@@ -11,7 +11,7 @@ router.use(requireAuth);
 const isSpending = eq(transactions.flowType, 'spending');
 
 router.get('/goals', async (_req: AuthRequest, res: Response) => {
-  const rows = await db.select().from(savingsGoals).orderBy(savingsGoals.targetDate);
+  const rows = await db.select().from(savingsGoals).orderBy(savingsGoals.priority, savingsGoals.targetDate);
   const linkedIds = rows.map((r) => r.linkedAccountId).filter((id): id is string => id != null);
   const linkedAccounts = linkedIds.length
     ? await db
@@ -33,33 +33,61 @@ router.get('/goals', async (_req: AuthRequest, res: Response) => {
 });
 
 router.post('/goals', async (req: AuthRequest, res: Response) => {
-  const { name, targetAmount, currentAmount, targetDate, linkedAccountId } = req.body as {
-    name: string; targetAmount: number; currentAmount?: number; targetDate?: string; linkedAccountId?: string;
-  };
+  const { name, targetAmount, currentAmount, targetDate, linkedAccountId, priority, fundingSource, why } =
+    req.body as {
+      name: string; targetAmount: number; currentAmount?: number; targetDate?: string;
+      linkedAccountId?: string; priority?: number; fundingSource?: string; why?: string;
+    };
   const inserted = await db
     .insert(savingsGoals)
-    .values({ name, targetAmount: targetAmount.toString(), currentAmount: currentAmount?.toString(), targetDate, linkedAccountId })
+    .values({
+      name,
+      targetAmount: targetAmount.toString(),
+      currentAmount: currentAmount?.toString(),
+      targetDate,
+      linkedAccountId,
+      priority: Number.isFinite(priority) ? Math.trunc(priority as number) : undefined,
+      fundingSource: fundingSource ?? undefined,
+      why: why ?? undefined,
+    })
     .returning();
   res.status(201).json(inserted[0]);
 });
 
 router.patch('/goals/:id', async (req: AuthRequest, res: Response) => {
-  const { name, targetAmount, currentAmount, targetDate } = req.body as {
-    name?: string; targetAmount?: number; currentAmount?: number; targetDate?: string;
-  };
+  const { name, targetAmount, currentAmount, targetDate, linkedAccountId, priority, fundingSource, why } =
+    req.body as {
+      name?: string; targetAmount?: number; currentAmount?: number; targetDate?: string;
+      linkedAccountId?: string | null; priority?: number; fundingSource?: string | null; why?: string | null;
+    };
   const [existing] = await db.select().from(savingsGoals).where(eq(savingsGoals.id, req.params.id as string));
   if (!existing) {
     res.status(404).json({ error: 'Goal not found' });
     return;
   }
   // currentAmount is derived from the linked account's balance, not editable directly.
-  const nextCurrentAmount = existing.linkedAccountId ? undefined : currentAmount?.toString();
+  const linkedNow = linkedAccountId === undefined ? existing.linkedAccountId : linkedAccountId;
+  const nextCurrentAmount = linkedNow ? undefined : currentAmount?.toString();
   const updated = await db
     .update(savingsGoals)
-    .set({ name, targetAmount: targetAmount?.toString(), currentAmount: nextCurrentAmount, targetDate })
+    .set({
+      name,
+      targetAmount: targetAmount?.toString(),
+      currentAmount: nextCurrentAmount,
+      targetDate,
+      linkedAccountId: linkedAccountId === undefined ? undefined : linkedAccountId,
+      priority: Number.isFinite(priority) ? Math.trunc(priority as number) : undefined,
+      fundingSource: fundingSource === undefined ? undefined : fundingSource,
+      why: why === undefined ? undefined : why,
+    })
     .where(eq(savingsGoals.id, req.params.id as string))
     .returning();
   res.json(updated[0]);
+});
+
+router.delete('/goals/:id', async (req: AuthRequest, res: Response) => {
+  await db.delete(savingsGoals).where(eq(savingsGoals.id, req.params.id as string));
+  res.status(204).send();
 });
 
 router.get('/runway', async (_req: AuthRequest, res: Response) => {

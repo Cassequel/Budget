@@ -12,6 +12,21 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Whole-dollar currency, e.g. 1234.56 → "$1,235". For dense stat tiles.
+export function formatCurrency0(amount: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+// A 0–1 ratio as a percent string, e.g. 0.797 → "79.7%". null → "—".
+export function formatPercent(ratio: number | null | undefined, digits = 1): string {
+  if (ratio == null || !Number.isFinite(ratio)) return '—';
+  return `${(ratio * 100).toFixed(digits)}%`;
+}
+
 export function formatDate(dateStr: string): string {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
     month: 'short',

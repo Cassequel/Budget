@@ -16,6 +16,8 @@ import plansRouter from './routes/plans';
 import savingsRouter from './routes/savings';
 import plaidRouter from './routes/plaid';
 import dashboardRouter from './routes/dashboard';
+import operatingPlanRouter from './routes/operatingPlan';
+import creditCardsRouter from './routes/creditCards';
 import { seedDefaultCategories } from './db/seedCategories';
 
 // ── Startup sanity checks ───────────────────────────────────
@@ -84,6 +86,8 @@ app.use('/api/plans', plansRouter);
 app.use('/api/savings', savingsRouter);
 app.use('/api/plaid', plaidRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/operating-plan', operatingPlanRouter);
+app.use('/api/credit-cards', creditCardsRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 

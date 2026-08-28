@@ -4,6 +4,7 @@ import api from './lib/api';
 import LoginPage from './pages/LoginPage';
 import Layout from './components/Layout';
 import DashboardPage from './pages/DashboardPage';
+import PlanPage from './pages/PlanPage';
 import AccountsPage from './pages/AccountsPage';
 import TransactionsPage from './pages/TransactionsPage';
 import BreakdownPage from './pages/BreakdownPage';
@@ -40,6 +41,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Layout onLogout={logout} />}>
           <Route index element={<DashboardPage />} />
+          <Route path="plan" element={<PlanPage />} />
           <Route path="accounts" element={<AccountsPage />} />
           <Route path="transactions" element={<TransactionsPage />} />
           <Route path="breakdown" element={<BreakdownPage />} />
