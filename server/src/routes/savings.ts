@@ -1,15 +1,35 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
 import { savingsGoals, accounts, transactions } from '../db/schema';
-import { eq, gte, sql } from 'drizzle-orm';
+import { eq, gte, gt, and, inArray, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 router.use(requireAuth);
 
+// Same deterministic filter dashboard.ts uses — see server/src/flowType.ts.
+const isSpending = eq(transactions.flowType, 'spending');
+
 router.get('/goals', async (_req: AuthRequest, res: Response) => {
   const rows = await db.select().from(savingsGoals).orderBy(savingsGoals.targetDate);
-  res.json(rows);
+  const linkedIds = rows.map((r) => r.linkedAccountId).filter((id): id is string => id != null);
+  const linkedAccounts = linkedIds.length
+    ? await db
+        .select({ id: accounts.id, currentBalance: accounts.currentBalance })
+        .from(accounts)
+        .where(inArray(accounts.id, linkedIds))
+    : [];
+  const balanceById = new Map(linkedAccounts.map((a) => [a.id, a.currentBalance]));
+
+  // A goal linked to an account tracks that account's real balance — the
+  // manually-entered currentAmount is only used when there's no link.
+  res.json(
+    rows.map((r) =>
+      r.linkedAccountId && balanceById.has(r.linkedAccountId)
+        ? { ...r, currentAmount: balanceById.get(r.linkedAccountId) }
+        : r
+    )
+  );
 });
 
 router.post('/goals', async (req: AuthRequest, res: Response) => {
@@ -27,9 +47,16 @@ router.patch('/goals/:id', async (req: AuthRequest, res: Response) => {
   const { name, targetAmount, currentAmount, targetDate } = req.body as {
     name?: string; targetAmount?: number; currentAmount?: number; targetDate?: string;
   };
+  const [existing] = await db.select().from(savingsGoals).where(eq(savingsGoals.id, req.params.id as string));
+  if (!existing) {
+    res.status(404).json({ error: 'Goal not found' });
+    return;
+  }
+  // currentAmount is derived from the linked account's balance, not editable directly.
+  const nextCurrentAmount = existing.linkedAccountId ? undefined : currentAmount?.toString();
   const updated = await db
     .update(savingsGoals)
-    .set({ name, targetAmount: targetAmount?.toString(), currentAmount: currentAmount?.toString(), targetDate })
+    .set({ name, targetAmount: targetAmount?.toString(), currentAmount: nextCurrentAmount, targetDate })
     .where(eq(savingsGoals.id, req.params.id as string))
     .returning();
   res.json(updated[0]);
@@ -50,7 +77,7 @@ router.get('/runway', async (_req: AuthRequest, res: Response) => {
   const result = await db
     .select({ total: sql<string>`sum(amount)` })
     .from(transactions)
-    .where(gte(transactions.date, from));
+    .where(and(gte(transactions.date, from), gt(transactions.amount, '0'), isSpending));
 
   const totalSpend = parseFloat(result[0]?.total ?? '0');
   const avgMonthlySpend = totalSpend / 3;

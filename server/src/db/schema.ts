@@ -50,6 +50,11 @@ export const transactions = pgTable(
     category: text('category'),
     plaidCategory: text('plaid_category'),
     plaidCategoryDetailed: text('plaid_category_detailed'),
+    // Deterministic classification of what kind of money movement this is —
+    // derived from Plaid's personal_finance_category, independent of the
+    // (partly LLM-assigned) display `category`. Drives every spend/income/
+    // runway aggregate. See server/src/flowType.ts.
+    flowType: text('flow_type').notNull().default('spending'),
     isPending: boolean('is_pending').default(false),
     notes: text('notes'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -59,6 +64,7 @@ export const transactions = pgTable(
     index('transactions_date_idx').on(table.date),
     index('transactions_account_id_idx').on(table.accountId),
     index('transactions_category_idx').on(table.category),
+    index('transactions_flow_type_idx').on(table.flowType),
   ]
 );
 

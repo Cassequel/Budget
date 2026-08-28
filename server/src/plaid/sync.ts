@@ -4,6 +4,7 @@ import { plaidItems, accounts, transactions } from '../db/schema';
 import { eq, inArray } from 'drizzle-orm';
 import { decrypt, encrypt } from '../lib/crypto';
 import { categorizeUncategorized } from '../categorize';
+import { deriveFlowType } from '../flowType';
 
 // Prevent overlapping syncs (e.g. webhook firing while a manual sync runs)
 type SyncResult = { synced: number; errors: number; categorized: number };
@@ -31,7 +32,9 @@ async function doSyncAllItems(): Promise<SyncResult> {
 
   for (const item of items) {
     try {
-      await syncItem(item.id, decrypt(item.accessTokenEncrypted), item.cursor, acctMap);
+      const accessToken = decrypt(item.accessTokenEncrypted);
+      await syncItem(item.id, accessToken, item.cursor, acctMap);
+      await refreshBalances(accessToken, acctMap);
       synced++;
     } catch (err) {
       console.error(`Sync failed for item ${item.id}:`, err);
@@ -83,6 +86,7 @@ async function syncItem(
         category: null,
         plaidCategory: tx.personal_finance_category?.primary ?? null,
         plaidCategoryDetailed: tx.personal_finance_category?.detailed ?? null,
+        flowType: deriveFlowType(tx.personal_finance_category?.primary, tx.personal_finance_category?.detailed),
         isPending: tx.pending,
       }));
       for (let i = 0; i < rows.length; i += CHUNK) {
@@ -117,6 +121,26 @@ async function syncItem(
   }
 
   await db.update(plaidItems).set({ cursor: currentCursor, updatedAt: new Date() }).where(eq(plaidItems.id, itemId));
+}
+
+// Balances are only returned by transactionsSync when they change on Plaid's
+// side in a way that touches a transaction; fetch them explicitly on every
+// sync so the Accounts/Dashboard "updated X ago" freshness line is honest.
+async function refreshBalances(accessToken: string, acctMap: Map<string, string | null>) {
+  const res = await plaidClient.accountsGet({ access_token: accessToken });
+  const now = new Date();
+  for (const acct of res.data.accounts) {
+    const id = acctMap.get(acct.account_id);
+    if (!id) continue;
+    await db
+      .update(accounts)
+      .set({
+        currentBalance: acct.balances.current?.toString() ?? null,
+        availableBalance: acct.balances.available?.toString() ?? null,
+        updatedAt: now,
+      })
+      .where(eq(accounts.id, id));
+  }
 }
 
 export async function exchangeAndStore(publicToken: string, institutionId: string | undefined, institutionName: string | undefined) {

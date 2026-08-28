@@ -9,6 +9,7 @@ interface Goal {
   targetAmount: string;
   currentAmount: string | null;
   targetDate: string | null;
+  linkedAccountId: string | null;
 }
 
 interface Runway {
@@ -129,15 +130,19 @@ export default function SavingsPage() {
 
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-400">{pct.toFixed(0)}% · {formatCurrency(remaining)} to go</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  defaultValue={current}
-                  onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateCurrent(goal.id, v); }}
-                  className="w-28 px-2 py-1 text-xs border border-slate-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-green-400"
-                  title="Update current amount"
-                />
+                {goal.linkedAccountId ? (
+                  <span className="text-xs text-slate-400 italic">Tracks linked account</span>
+                ) : (
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    defaultValue={current}
+                    onBlur={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) updateCurrent(goal.id, v); }}
+                    className="w-28 px-2 py-1 text-xs border border-slate-200 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-green-400"
+                    title="Update current amount"
+                  />
+                )}
               </div>
             </div>
           );

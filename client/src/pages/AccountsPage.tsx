@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import api from '../lib/api';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, formatRelativeTime } from '../lib/utils';
 import { Plus, RefreshCw, Building2 } from 'lucide-react';
 
 interface Account {
@@ -14,6 +14,7 @@ interface Account {
   currentBalance: string | null;
   availableBalance: string | null;
   institutionName: string | null;
+  updatedAt: string;
 }
 
 function AccountCard({ acct }: { acct: Account }) {
@@ -34,6 +35,7 @@ function AccountCard({ acct }: { acct: Account }) {
         {acct.availableBalance && acct.currentBalance && acct.availableBalance !== acct.currentBalance && (
           <p className="text-xs text-slate-400">{formatCurrency(parseFloat(acct.currentBalance))} current</p>
         )}
+        <p className="text-xs text-slate-300">Updated {formatRelativeTime(acct.updatedAt)}</p>
       </div>
     </div>
   );
