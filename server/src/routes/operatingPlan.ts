@@ -4,6 +4,7 @@ import { operatingPlan, accounts, creditCards, savingsGoals, planItems, transact
 import { and, gte, gt, eq, sql } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { utilizationRatio, nextMilestone, round2 } from '../utilization';
+import { ymd, parseYmd, daysUntil, rollForwardMonthly } from '../dates';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,25 +12,6 @@ router.use(requireAuth);
 const DAYS_PER_MONTH = 30.44;
 const BILLS_HORIZON_DAYS = 21;
 
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function parseYmd(s: string): Date {
-  const [y, m, d] = s.split('-').map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1);
-}
-function daysUntil(dateStr: string): number {
-  const today = parseYmd(ymd(new Date()));
-  return Math.round((parseYmd(dateStr).getTime() - today.getTime()) / 86_400_000);
-}
-// Credit-card due/close dates recur monthly. Roll a stored date forward whole
-// months until it's today or later, so an old value still means "the next one".
-function rollForwardMonthly(dateStr: string): string {
-  const today = parseYmd(ymd(new Date()));
-  const d = parseYmd(dateStr);
-  while (d.getTime() < today.getTime()) d.setMonth(d.getMonth() + 1);
-  return ymd(d);
-}
 function n(v: string | null | undefined): number | null {
   return v == null ? null : parseFloat(v);
 }

@@ -1,9 +1,11 @@
 import { Router, Response } from 'express';
 import { db } from '../db';
-import { creditCards, accounts } from '../db/schema';
+import { creditCards, accounts, operatingPlan } from '../db/schema';
 import { eq, and, inArray, notInArray } from 'drizzle-orm';
 import { requireAuth, AuthRequest } from '../middleware/auth';
 import { utilizationRatio, nextMilestone, round2 } from '../utilization';
+import { daysUntil, rollForwardMonthly } from '../dates';
+import { Strategy, milestoneLadder, allocatePayment, applyPayments } from '../payoff';
 
 const router = Router();
 router.use(requireAuth);
@@ -87,6 +89,130 @@ router.post('/sync-from-accounts', async (_req: AuthRequest, res: Response) => {
   }
 });
 
+// Per-card + combined payoff ladders, next due/close dates, autopay + promo-APR
+// flags — everything the credit-control page needs to lay out "pay $X to reach
+// Y%" and the date reminders.
+router.get('/payoff', async (_req: AuthRequest, res: Response) => {
+  try {
+    const { cards } = await loadCardsWithBalances();
+    const decorated = cards.map((c) => {
+      const due = c.dueDate ? rollForwardMonthly(c.dueDate) : null;
+      const close = c.statementCloseDate ? rollForwardMonthly(c.statementCloseDate) : null;
+      return {
+        id: c.id,
+        name: c.name,
+        balance: round2(c.balance),
+        limit: c.limit,
+        apr: c.apr,
+        ratio: utilizationRatio({ balance: c.balance, limit: c.limit }),
+        minimumPayment: toNum(c.minimumPayment),
+        autopayMinimum: c.autopayMinimum,
+        dueDate: due,
+        daysUntilDue: due ? daysUntil(due) : null,
+        statementCloseDate: close,
+        daysUntilClose: close ? daysUntil(close) : null,
+        // Paying before the statement closes is what lowers the utilization the
+        // bureaus actually see this cycle.
+        payBeforeClose: !!(close && c.balance > 0 && (!due || daysUntil(close) <= daysUntil(due))),
+        promoAprExpiry: c.promoAprExpiry,
+        daysUntilPromoEnd: c.promoAprExpiry ? daysUntil(c.promoAprExpiry) : null,
+        ladder: milestoneLadder(c.balance, c.limit),
+      };
+    });
+
+    const withLimit = cards.filter((c) => c.limit != null && c.limit > 0);
+    const combBalance = round2(withLimit.reduce((s, c) => s + c.balance, 0));
+    const combLimit = round2(withLimit.reduce((s, c) => s + (c.limit ?? 0), 0));
+
+    res.json({
+      cards: decorated,
+      combined: {
+        balance: combBalance,
+        limit: combLimit,
+        ratio: combLimit > 0 ? combBalance / combLimit : null,
+        ladder: milestoneLadder(combBalance, combLimit || null),
+      },
+      cash: await cashSnapshot(),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to compute payoff' });
+  }
+});
+
+// "What if I pay $X today?" — body is either { amount, strategy } to split a
+// lump sum, or { payments: [{ cardId, amount }] } for exact per-card amounts.
+// Returns the before/after utilization picture and what it does to your cash.
+router.post('/simulate', async (req: AuthRequest, res: Response) => {
+  try {
+    const b = req.body as Record<string, unknown>;
+    const { cards } = await loadCardsWithBalances();
+
+    let applied: Record<string, number> = {};
+    let unused = 0;
+    let amount = 0;
+
+    if (Array.isArray(b.payments)) {
+      for (const p of b.payments as { cardId?: string; amount?: unknown }[]) {
+        const v = toNum(p.amount == null ? null : String(p.amount));
+        if (p.cardId && v != null && v > 0) applied[p.cardId] = round2((applied[p.cardId] ?? 0) + v);
+      }
+      amount = round2(Object.values(applied).reduce((s, v) => s + v, 0));
+    } else {
+      amount = Math.max(0, toNum(b.amount == null ? null : String(b.amount)) ?? 0);
+      const strategy: Strategy = (['avalanche', 'highest-util', 'proportional'] as const).includes(
+        b.strategy as Strategy
+      )
+        ? (b.strategy as Strategy)
+        : 'highest-util';
+      const alloc = allocatePayment(cards, amount, strategy);
+      applied = alloc.applied;
+      unused = alloc.unused;
+    }
+
+    const result = applyPayments(cards, applied);
+    const cash = await cashSnapshot();
+    const spentFromCash = round2(amount - unused);
+    const availableAfter = round2(cash.available - spentFromCash);
+    const monthsCoverageAfter =
+      cash.survivalCost && cash.survivalCost > 0 ? round2(availableAfter / cash.survivalCost) : null;
+
+    let warning: string | null = null;
+    if (availableAfter < 0) {
+      warning = `That's ${usd(-availableAfter)} more than your spendable cash (${usd(cash.available)}).`;
+    } else if (monthsCoverageAfter != null && monthsCoverageAfter < 1) {
+      warning = `Leaves ${usd(availableAfter)} — under one month of your ${usd(cash.survivalCost)} baseline.`;
+    } else if (
+      cash.reserveTarget != null &&
+      cash.reserve < cash.reserveTarget &&
+      availableAfter < cash.reserveTarget - cash.reserve
+    ) {
+      warning = `Leaves ${usd(availableAfter)} — not enough to also close your ${usd(
+        cash.reserveTarget - cash.reserve
+      )} cash-reserve gap.`;
+    }
+
+    res.json({
+      amount,
+      unused,
+      perCard: result.perCard,
+      combined: result.combined,
+      cash: {
+        availableBefore: cash.available,
+        spentFromCash,
+        availableAfter,
+        monthsCoverageAfter,
+        survivalCost: cash.survivalCost,
+        dropsBelowReserve: availableAfter < 0,
+        warning,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to simulate payment' });
+  }
+});
+
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const b = req.body as Record<string, unknown>;
@@ -161,6 +287,72 @@ function num(v: unknown): string | null {
   if (v == null || v === '') return null;
   const n = typeof v === 'number' ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n.toString() : null;
+}
+
+// Parse a stored numeric string to a number, or null when absent/blank.
+function toNum(v: string | null | undefined): number | null {
+  if (v == null || v === '') return null;
+  const n = parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+// Compact whole-dollar formatter for the human-readable warning strings.
+function usd(v: number | null | undefined): string {
+  return v == null
+    ? '$0'
+    : v.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+}
+
+type LoadedCard = Omit<typeof creditCards.$inferSelect, 'apr'> & {
+  balance: number;
+  limit: number | null;
+  apr: number | null;
+};
+
+// Every card row with its utilization balance (statement balance, else the
+// linked account's live balance, else 0) and numeric limit/APR resolved.
+async function loadCardsWithBalances(): Promise<{ cards: LoadedCard[] }> {
+  const rows = await db.select().from(creditCards).orderBy(creditCards.name);
+  const acctIds = rows.map((c) => c.accountId).filter((id): id is string => id != null);
+  const accts = acctIds.length
+    ? await db.select().from(accounts).where(inArray(accounts.id, acctIds))
+    : [];
+  const liveById = new Map(
+    accts.map((a) => [a.id, a.currentBalance != null ? parseFloat(a.currentBalance) : null])
+  );
+  const cards = rows.map((c) => {
+    const live = c.accountId ? liveById.get(c.accountId) ?? null : null;
+    return {
+      ...c,
+      balance: round2(cardBalance(c, live)),
+      limit: toNum(c.creditLimit),
+      apr: toNum(c.apr),
+    };
+  });
+  return { cards };
+}
+
+// Spendable / reserve cash and the operating-plan targets, for the cash-safety
+// check on a simulated payment.
+async function cashSnapshot() {
+  const [accts, planRows] = await Promise.all([
+    db.select().from(accounts),
+    db.select().from(operatingPlan).limit(1),
+  ]);
+  const plan = planRows[0];
+  const dep = accts.filter((a) => a.type === 'depository');
+  const sumRole = (role: string) =>
+    round2(
+      dep
+        .filter((a) => a.cashRole === role)
+        .reduce((s, a) => s + (toNum(a.availableBalance) ?? toNum(a.currentBalance) ?? 0), 0)
+    );
+  return {
+    available: sumRole('spending'),
+    reserve: sumRole('reserve'),
+    reserveTarget: toNum(plan?.cashReserveTarget ?? null),
+    survivalCost: toNum(plan?.monthlySurvivalCost ?? null),
+  };
 }
 
 export default router;

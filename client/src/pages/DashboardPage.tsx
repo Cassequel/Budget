@@ -149,7 +149,12 @@ function ControlCenter() {
 
       {s.utilization.perCard.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
-          <h2 className="text-base font-semibold text-slate-900 mb-4">Utilization by card</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-slate-900">Utilization by card</h2>
+            <Link to="/credit" className="text-xs font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1">
+              Pay-down tools <ArrowRight size={13} />
+            </Link>
+          </div>
           <div className="space-y-3">
             {s.utilization.perCard.map((card) => (
               <div key={card.id}>
