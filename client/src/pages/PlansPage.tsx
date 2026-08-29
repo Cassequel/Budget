@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import api from '../lib/api';
 import { formatCurrency, formatDate } from '../lib/utils';
-import { Plus, Check, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Check, Trash2, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Plan {
   id: string;
@@ -24,6 +24,8 @@ interface PlanItem {
 const TYPE_LABELS: Record<string, string> = { school: 'School', housing: 'Housing', other: 'Other' };
 const TYPE_COLORS: Record<string, string> = { school: 'bg-blue-50 text-blue-700', housing: 'bg-green-50 text-green-700', other: 'bg-slate-100 text-slate-600' };
 
+const inputCls = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+
 export default function PlansPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [items, setItems] = useState<Record<string, PlanItem[]>>({});
@@ -32,6 +34,10 @@ export default function PlansPage() {
   const [addItemFor, setAddItemFor] = useState<string | null>(null);
   const [planForm, setPlanForm] = useState({ name: '', type: 'school', targetDate: '', notes: '' });
   const [itemForm, setItemForm] = useState({ name: '', amount: '', dueDate: '', notes: '' });
+  const [editingPlan, setEditingPlan] = useState<string | null>(null);
+  const [editPlanForm, setEditPlanForm] = useState({ name: '', type: 'school', targetDate: '', notes: '' });
+  const [editingItem, setEditingItem] = useState<string | null>(null);
+  const [editItemForm, setEditItemForm] = useState({ name: '', amount: '', dueDate: '' });
 
   const loadPlans = useCallback(() => {
     api.get<Plan[]>('/api/plans').then((r) => setPlans(r.data));
@@ -60,11 +66,57 @@ export default function PlansPage() {
     loadPlans();
   }
 
+  function startEditPlan(plan: Plan) {
+    setEditingPlan(plan.id);
+    setEditPlanForm({
+      name: plan.name,
+      type: plan.type,
+      targetDate: plan.targetDate ?? '',
+      notes: plan.notes ?? '',
+    });
+  }
+
+  async function savePlan(e: FormEvent, planId: string) {
+    e.preventDefault();
+    await api.patch(`/api/plans/${planId}`, {
+      name: editPlanForm.name,
+      type: editPlanForm.type,
+      targetDate: editPlanForm.targetDate || null,
+      notes: editPlanForm.notes || null,
+    });
+    setEditingPlan(null);
+    loadPlans();
+  }
+
+  async function deletePlan(plan: Plan) {
+    if (!confirm(`Delete "${plan.name}" and all its items?`)) return;
+    await api.delete(`/api/plans/${plan.id}`);
+    setEditingPlan(null);
+    setExpanded((prev) => { const next = new Set(prev); next.delete(plan.id); return next; });
+    loadPlans();
+  }
+
   async function addItem(e: FormEvent, planId: string) {
     e.preventDefault();
     await api.post(`/api/plans/${planId}/items`, { name: itemForm.name, amount: parseFloat(itemForm.amount), dueDate: itemForm.dueDate || undefined, notes: itemForm.notes || undefined });
     setItemForm({ name: '', amount: '', dueDate: '', notes: '' });
     setAddItemFor(null);
+    loadItems(planId);
+  }
+
+  function startEditItem(item: PlanItem) {
+    setEditingItem(item.id);
+    setEditItemForm({ name: item.name, amount: item.amount, dueDate: item.dueDate ?? '' });
+  }
+
+  async function saveItem(e: FormEvent, planId: string, itemId: string) {
+    e.preventDefault();
+    await api.patch(`/api/plans/${planId}/items/${itemId}`, {
+      name: editItemForm.name,
+      amount: parseFloat(editItemForm.amount),
+      dueDate: editItemForm.dueDate || null,
+    });
+    setEditingItem(null);
     loadItems(planId);
   }
 
@@ -93,7 +145,7 @@ export default function PlansPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-slate-500 mb-1 block">Plan Name</label>
-              <input required value={planForm.name} onChange={(e) => setPlanForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Fall 2026 School" />
+              <input required value={planForm.name} onChange={(e) => setPlanForm((f) => ({ ...f, name: e.target.value }))} className={inputCls} placeholder="Fall 2026 School" />
             </div>
             <div>
               <label className="text-xs text-slate-500 mb-1 block">Type</label>
@@ -125,50 +177,107 @@ export default function PlansPage() {
           const total = planItems.reduce((s, i) => s + parseFloat(i.amount), 0);
           const paid = planItems.filter((i) => i.isPaid).reduce((s, i) => s + parseFloat(i.amount), 0);
           const isOpen = expanded.has(plan.id);
+          const isEditing = editingPlan === plan.id;
 
           return (
             <div key={plan.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-              <button onClick={() => toggleExpand(plan.id)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors text-left">
-                <div className="flex items-center gap-3">
-                  {isOpen ? <ChevronDown size={15} className="text-slate-400" /> : <ChevronRight size={15} className="text-slate-400" />}
-                  <span className="text-sm font-semibold text-slate-800">{plan.name}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${TYPE_COLORS[plan.type] ?? TYPE_COLORS.other}`}>
-                    {TYPE_LABELS[plan.type] ?? plan.type}
-                  </span>
-                  {plan.targetDate && <span className="text-xs text-slate-400">{formatDate(plan.targetDate)}</span>}
+              {isEditing ? (
+                <form onSubmit={(e) => savePlan(e, plan.id)} className="px-5 py-4 space-y-3 border-b border-slate-100">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Plan Name</label>
+                      <input required value={editPlanForm.name} onChange={(e) => setEditPlanForm((f) => ({ ...f, name: e.target.value }))} className={inputCls} />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Type</label>
+                      <select value={editPlanForm.type} onChange={(e) => setEditPlanForm((f) => ({ ...f, type: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none">
+                        <option value="school">School</option>
+                        <option value="housing">Housing</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Target Date</label>
+                      <input type="date" value={editPlanForm.targetDate} onChange={(e) => setEditPlanForm((f) => ({ ...f, targetDate: e.target.value }))} className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">Notes</label>
+                      <input value={editPlanForm.notes} onChange={(e) => setEditPlanForm((f) => ({ ...f, notes: e.target.value }))} className={inputCls} placeholder="Optional" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-between">
+                    <button type="button" onClick={() => deletePlan(plan)} className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                      <Trash2 size={13} />Delete plan
+                    </button>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setEditingPlan(null)} className="px-3 py-2 text-sm text-slate-500">Cancel</button>
+                      <button type="submit" className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
+                    </div>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors">
+                  <button onClick={() => toggleExpand(plan.id)} className="flex items-center gap-3 text-left flex-1 min-w-0">
+                    {isOpen ? <ChevronDown size={15} className="text-slate-400 shrink-0" /> : <ChevronRight size={15} className="text-slate-400 shrink-0" />}
+                    <span className="text-sm font-semibold text-slate-800 truncate">{plan.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${TYPE_COLORS[plan.type] ?? TYPE_COLORS.other}`}>
+                      {TYPE_LABELS[plan.type] ?? plan.type}
+                    </span>
+                    {plan.targetDate && <span className="text-xs text-slate-400 shrink-0">{formatDate(plan.targetDate)}</span>}
+                  </button>
+                  <div className="flex items-center gap-3 shrink-0 pl-3">
+                    <span className="text-sm font-semibold text-slate-700">{formatCurrency(paid)} <span className="font-normal text-slate-400">/ {formatCurrency(total)}</span></span>
+                    <button onClick={() => startEditPlan(plan)} className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit plan">
+                      <Pencil size={14} />
+                    </button>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-sm font-semibold text-slate-700">{formatCurrency(paid)} <span className="font-normal text-slate-400">/ {formatCurrency(total)}</span></span>
-                </div>
-              </button>
+              )}
 
-              {isOpen && (
+              {isOpen && !isEditing && (
                 <div className="border-t border-slate-100 px-5 py-3 space-y-2">
                   {planItems.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                      <div className="flex items-center gap-3">
-                        <button onClick={() => togglePaid(plan.id, item)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${item.isPaid ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
-                          {item.isPaid && <Check size={11} />}
-                        </button>
-                        <div>
-                          <p className={`text-sm ${item.isPaid ? 'line-through text-slate-400' : 'text-slate-700'}`}>{item.name}</p>
-                          {item.dueDate && <p className="text-xs text-slate-400">Due {formatDate(item.dueDate)}</p>}
+                    editingItem === item.id ? (
+                      <form key={item.id} onSubmit={(e) => saveItem(e, plan.id, item.id)} className="py-2 space-y-2 border-b border-slate-50 last:border-0">
+                        <div className="grid grid-cols-3 gap-2">
+                          <input required value={editItemForm.name} onChange={(e) => setEditItemForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className={inputCls} />
+                          <input required type="number" min="0" step="0.01" value={editItemForm.amount} onChange={(e) => setEditItemForm((f) => ({ ...f, amount: e.target.value }))} placeholder="Amount" className={inputCls} />
+                          <input type="date" value={editItemForm.dueDate} onChange={(e) => setEditItemForm((f) => ({ ...f, dueDate: e.target.value }))} className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setEditingItem(null)} className="px-3 py-1.5 text-xs text-slate-500">Cancel</button>
+                          <button type="submit" className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div key={item.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => togglePaid(plan.id, item)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${item.isPaid ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-400'}`}>
+                            {item.isPaid && <Check size={11} />}
+                          </button>
+                          <div>
+                            <p className={`text-sm ${item.isPaid ? 'line-through text-slate-400' : 'text-slate-700'}`}>{item.name}</p>
+                            {item.dueDate && <p className="text-xs text-slate-400">Due {formatDate(item.dueDate)}</p>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-medium text-slate-700">{formatCurrency(parseFloat(item.amount))}</span>
+                          <button onClick={() => startEditItem(item)} className="text-slate-300 hover:text-blue-500 transition-colors" title="Edit item">
+                            <Pencil size={13} />
+                          </button>
+                          <button onClick={() => deleteItem(plan.id, item.id)} className="text-slate-300 hover:text-red-400 transition-colors" title="Delete item">
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-slate-700">{formatCurrency(parseFloat(item.amount))}</span>
-                        <button onClick={() => deleteItem(plan.id, item.id)} className="text-slate-300 hover:text-red-400 transition-colors">
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </div>
+                    )
                   ))}
 
                   {addItemFor === plan.id ? (
                     <form onSubmit={(e) => addItem(e, plan.id)} className="pt-2 space-y-2">
                       <div className="grid grid-cols-3 gap-2">
-                        <input required value={itemForm.name} onChange={(e) => setItemForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className="col-span-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                        <input required type="number" min="0" step="0.01" value={itemForm.amount} onChange={(e) => setItemForm((f) => ({ ...f, amount: e.target.value }))} placeholder="Amount" className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <input required value={itemForm.name} onChange={(e) => setItemForm((f) => ({ ...f, name: e.target.value }))} placeholder="Item name" className={inputCls} />
+                        <input required type="number" min="0" step="0.01" value={itemForm.amount} onChange={(e) => setItemForm((f) => ({ ...f, amount: e.target.value }))} placeholder="Amount" className={inputCls} />
                         <input type="date" value={itemForm.dueDate} onChange={(e) => setItemForm((f) => ({ ...f, dueDate: e.target.value }))} className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none" />
                       </div>
                       <div className="flex gap-2">

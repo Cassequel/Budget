@@ -25,6 +25,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   res.json(updated[0]);
 });
 
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  const id = req.params.id as string;
+  // plan_items.plan_id has onDelete: 'cascade', so its rows go with it.
+  await db.delete(plans).where(eq(plans.id, id));
+  res.status(204).send();
+});
+
 router.get('/:id/items', async (req: AuthRequest, res: Response) => {
   const id = req.params.id as string;
   const rows = await db.select().from(planItems).where(eq(planItems.planId, id)).orderBy(planItems.dueDate);
